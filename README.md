@@ -1,8 +1,5 @@
-Thought for 4 seconds
-
-
-# CTF-Index Contracts
-
+# ⚡️Conditional Token Index
+> ctf(positionId1, positionId2, positionId3) -> indexToken(erc20)
 **Index product for prediction-market positions**
 
 A minimal Solidity implementation that **wraps a basket of Gnosis Conditional Tokens (prediction-market positions, ERC-1155) into a single fungible ERC-20 *index token***.
