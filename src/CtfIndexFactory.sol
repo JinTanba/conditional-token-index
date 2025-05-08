@@ -8,122 +8,143 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 import {IConditionalTokens} from "./interfaces/IConditionalTokens.sol";
 import {CTFIndexToken} from "./CTFIndexToken.sol";
 
-
+// @dev
+// Invariant conditions:
+// 1. If the set of positionids is the same, and the metadata and ctf addresses are the same, calculate the same indextoken.
+// 2. An indextoken is issued and can be withdrawn in a 1:1 ratio with the position token it contains.
+// 3. An indextoken cannot have two or more positions under the same conditionid.
 
 contract CTFIndexFactory {
-    using Strings for uint256;
+
+    event IndexCreated(
+        address indexed index,
+        bytes32 indexed salt,
+        uint256[] indexSets,
+        bytes metadata
+    );
+
 
     IConditionalTokens public immutable ctf;
     address public immutable collateral;
     mapping(bytes32 => address) public getIndex;
+
+    error LengthMismatch();
+    error InvalidOrder();
+    error InvalidIndexSet();
+    error IndexAlreadyExists();
+    error InvalidCondition();
+    error DuplicateCondition();
 
     constructor(address _ctf, address _collateral) {
         ctf = IConditionalTokens(_ctf);
         collateral = _collateral;
     }
 
-    /**
-     * @dev Validates that ids and conditionIds have matching length,
-     *      that ids are strictly ascending (unique), and that each
-     *      id matches its corresponding condition. Returns ids as-is.
-     */
-    function prepareIndex(
-        uint256[] calldata ids,
+    function bundlePosition(
         bytes32[] calldata conditionIds,
-        bytes calldata metadata
-    ) internal view returns (
-        uint256[] memory filtered,
-        bytes32 salt,
-        string memory name,
-        string memory symbol
-    ) {
-
-        uint256 len = ids.length;
-        require(len > 0, "no ids");
-        require(len < 256, "too many ids");
-        require(conditionIds.length == len, "array mismatch");
-
-        for (uint256 i = 1; i < len; i++) {
-            require(ids[i] > ids[i - 1], "ids not sorted or duplicate");
-        }
-
-        for (uint256 i = 0; i < len; i++) {
-            bytes32 cond = conditionIds[i];
-            uint256 outcomeCount = ctf.getOutcomeSlotCount(cond);
-            bool matchFound;
-            for (uint256 idx = 0; idx < outcomeCount; idx++) {
-                if (ctf.getPositionId(collateral, ctf.getCollectionId(bytes32(0), cond, idx)) == ids[i]) {
-                    matchFound = true;
-                    break;
-                }
-            }
-            require(matchFound, "id vs condition mismatch");
-        }
-
-        filtered = ids;
-        bytes32 idsHash = keccak256(abi.encodePacked(filtered));
-        salt = keccak256(abi.encodePacked(ctf, metadata, len, idsHash));
-
-        string memory suffix = Strings.toHexString(uint256(salt));
-        name = string(abi.encodePacked("CTFIndex-", suffix));
-        symbol = string(abi.encodePacked("CTFI.", suffix));
-    }
-
-    function createIndex(
-        uint256[] calldata ids,
-        bytes32[] calldata conditionIds,
+        uint256[] calldata indexSets,
         bytes calldata metadata
     ) external returns (address index) {
 
         (
-            uint256[] memory filtered, 
             bytes32 salt, 
-            string memory name, 
-            string memory symbol
-        ) = prepareIndex(ids, conditionIds, metadata);
+            bytes memory initCode
+        ) = _preparePosition(conditionIds, indexSets, metadata);
 
-        require(getIndex[salt] == address(0), "exists");
-    
-        bytes memory initCode = abi.encodePacked(
-            type(CTFIndexToken).creationCode,
-            abi.encode(address(this), filtered, metadata, name, symbol)
-        );
+        _validatePosition(conditionIds, indexSets);
 
+
+        address predicted = address(
+            uint160(uint256(
+            keccak256(
+                abi.encodePacked(
+                    bytes1(0xff), address(this), salt, keccak256(initCode)
+                )
+            )
+        )));
+
+        if(predicted.code.length != 0) return predicted;
+
+        //CREATE2 deploy
         assembly {
-            index := create2(0, add(initCode, 0x20), mload(initCode), salt)
+            let ptr := add(initCode, 0x20)
+            let len := mload(initCode)
+            index := create2(0, ptr, len, salt)
             if iszero(index) { revert(0, 0) }
         }
 
-        getIndex[salt] = index;
-        emit IndexCreated(index, salt, filtered, metadata);
-    }
-
-    function predictIndexAddress(
-        uint256[] calldata ids,
-        bytes32[] calldata conditionIds,
-        bytes calldata metadata
-    ) external view returns (address) {
-        (
-            uint256[] memory filtered, 
-            bytes32 salt,
-            string memory name, 
-            string memory symbol
-        ) = prepareIndex(ids, conditionIds, metadata);
-
-        bytes memory initCode = abi.encodePacked(
-            type(CTFIndexToken).creationCode,
-            abi.encode(address(this), filtered, metadata, name, symbol)
+        CTFIndexToken(index).initialize(
+            indexSets, 
+            conditionIds, 
+            metadata,
+            collateral,
+            address(ctf)
         );
-        bytes32 codeHash = keccak256(initCode);
-        return address(uint160(uint256(
-            keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, codeHash)))
-        ));
+
+        getIndex[salt] = index;
+        emit IndexCreated(index, salt, indexSets, metadata);
     }
 
-    event IndexCreated(
-        address indexed index,
-        bytes32 indexed salt,
-        uint256[] ids,
-        bytes metadata
-    );
+    function calculateIndexAddress(
+        bytes32[] calldata conditionIds,
+        uint256[] calldata indexSets,
+        bytes calldata metadata
+    ) external view returns (address predicted) {
+
+        (bytes32 salt, bytes memory initCode) = _preparePosition(conditionIds, indexSets, metadata);
+
+        predicted = address(
+            uint160(uint256(
+            keccak256(
+                abi.encodePacked(
+                    bytes1(0xff), address(this), salt, keccak256(initCode)
+                )
+            )
+        )));
+    }
+
+    function _preparePosition(
+        bytes32[] calldata conditionIds,
+        uint256[] calldata indexSets,
+        bytes calldata metadata
+    )
+        internal
+        pure
+        returns (
+            bytes32 salt,
+            bytes memory initCode
+        )
+    {
+            unchecked {
+                for (uint256 i; i < conditionIds.length; ++i) {
+                    salt ^= keccak256(abi.encodePacked(conditionIds[i], indexSets[i]));
+                }
+                salt ^= bytes32(conditionIds.length);       // mix in cardinality
+                salt ^= keccak256(metadata); 
+            }
+
+            string memory suffix = Strings.toHexString(uint256(salt));
+            string memory name = string(abi.encodePacked("CTFIndex-", suffix));
+            string memory symbol = string(abi.encodePacked("CTFI.",suffix));
+            initCode = abi.encodePacked(
+                type(CTFIndexToken).creationCode,
+                abi.encode(name, symbol)            // constructor args
+            );
+    }
+
+    function _validatePosition(
+        bytes32[] calldata conditionIds,
+        uint256[] calldata indexSets
+    ) internal view {
+        for(uint256 i; i < conditionIds.length; ++i) {
+            uint256 slots = ctf.getOutcomeSlotCount(conditionIds[i]);
+            if(slots == 0) revert InvalidCondition();
+            if (indexSets[i] == 0 || indexSets[i] >= (1 << slots)) revert InvalidIndexSet();
+            for(uint256 j; j < conditionIds.length; ++j) {
+                if(i == j) continue;
+                if(conditionIds[i] == conditionIds[j]) revert DuplicateCondition();
+            }
+        }
+    }
+
 }
