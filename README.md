@@ -1,156 +1,114 @@
-# ⚡️Conditional Token Index
-> ctf(positionId1, positionId2, positionId3) -> indexToken(erc20)
-**Index product for prediction-market positions**
+# Conditional Tokens Index
 
-A minimal Solidity implementation that **wraps a basket of Gnosis Conditional Tokens (prediction-market positions, ERC-1155) into a single fungible ERC-20 *index token***.
-Use it to build **index products on top of prediction markets**—so traders and DeFi protocols can hold one ERC-20 that tracks multiple market outcomes.
+**Repository contents**
 
-The design guarantees a *deterministic address*, a *constant 1 : 1 redemption ratio*, and *order-independent token-set hashing* so that identical baskets always map to the same index token.
-
----
-
-## Contents
-
-| File                  | Description                                                                                                                      |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `CTFIndexFactory.sol` | Deploys and registers `CTFIndexToken` contracts via **CREATE2**. Performs all on-chain validation of the basket definition.      |
-| `CTFIndexToken.sol`   | ERC-20 implementation representing the basket. Handles mint ↔️ burn against the underlying ERC-1155 prediction-market positions. |
+| File                                | Role                                                                                                                                                                                                                         |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BaseConditionalTokenIndex.sol`     | Abstract ERC-20 that encapsulates a basket of Gnosis **Conditional Tokens** (CTF position IDs). Implements mint / burn (`deposit`, `withdraw`) and encodes every invariant in *immutable args* stored inside the proxy code. |
+| `ConditionalTokensIndex.sol`        | Thin concrete implementation of `BaseConditionalTokenIndex`. It does **not** add logic – letting integrators inherit and extend if required.                                                                                 |
+| `ConditionalTokensIndexFactory.sol` | Deterministic factory that builds minimal-proxy instances of an index, validates the basket, and supports **merge** / **split** operations between existing indexes.                                                         |
 
 ---
 
-## Why an Index Product?
+## 1. Motivation
 
-Prediction-market positions are issued as ERC-1155 tokens whose contract (`IConditionalTokens`) mints a unique token ID for **every outcome of every market**.
-This fragmentation makes them awkward to plug into DeFi tooling. By wrapping a curated set of positions into a single ERC-20 you can:
-
-* Offer a **prediction-market index product** that tracks a theme (e.g., “2025 US election outcomes”).
-* LP the entire basket in any AMM that speaks ERC-20.
-* Use it as collateral in lending protocols.
-* Compose it with other ERC-20-based primitives (vaults, options, structured notes).
+Prediction market position tokens with sufficient liquidity are clearly valuable assets. However, they are extremely difficult to handle due to issues such as becoming worthless in an instant, being ERC-1155 tokens, or having too many tokens.
+Bundling position tokens and treating them as index tokens could be a good option. We believe this would resolve most of the issues.
+[Gnosis's CTF](https://github.com/gnosis/pm-contracts) is an excellent technology—simple yet highly compatible with a wide range of possibilities—so we believe it can also be implemented in a straightforward manner.
 
 ---
 
-## Key Properties & Invariants
+## 2. Architecture
 
-| ID      | Invariant                                                          | How it’s enforced                                                                                                |
-| ------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| **I-1** | `1 CTFIndexToken == 1 unit` of *each* underlying ERC-1155 position | `mint` and `burn` transfer the same `amount` per-ID before/after `_mint` / `_burn`.                              |
-| **I-2** | **Order-independence**: `{1,2,3}` ≡ `{3,1,2}`                      | Factory requires the ID list to be sorted ascending and hashes `abi.encodePacked(ids)` inside the salt.          |
-| **I-3** | **Deterministic deployment**                                       | The salt is `keccak256(ctf, metadataHash, idsHash)`; `CREATE2` guarantees the same address for identical inputs. |
-
----
-
-## Quick Start
-
-### Requirements
-
-* Solidity ^0.8.25
-* Foundry ≥ 0.6 or Hardhat ≥ 2.22
-* Access to a deployed **Gnosis Conditional Tokens** contract (`IConditionalTokens`) and its collateral ERC-20.
-
-### 1. Compile
-
-```bash
-forge install
-forge build
+```text
+          ┌────────────────────────────┐
+          │  ConditionalTokensIndex    │  (implementation contract)
+          └────────────────────────────┘
+                         ▲
+      cloneDeterministicWithImmutableArgs()
+                         │
+ ┌────────────────────────────────────────────────────┐
+ │  Minimal-proxy Index Instance                      │
+ │  ─ contains immutable args:                        │
+ │    • uint256[] components     ← CTF position IDs   │
+ │    • bytes32[] conditionIds                        │
+ │    • uint256[] indexSets                          │
+ │    • bytes   specifications  ← arbitrary metadata │
+ │    • address factory / ctf / collateral / impl    │
+ └────────────────────────────────────────────────────┘
+                         ▲
+                         │
+          ┌────────────────────────────┐
+          │ ConditionalTokensIndexFactory │
+          └────────────────────────────┘
 ```
 
-### 2. Prepare Your Prediction-Market Basket
+* **Deterministic address**
+  The factory encodes the basket (immutable args), hashes it, and uses the hash as the `salt`.
+  → *Same basket ⇒ same index address.*
 
-```solidity
-uint256;
-ids[0] = getPositionId(conditionA, 0);   // YES of conditionA
-ids[1] = getPositionId(conditionB, 1);   // NO  of conditionB
-bytes   meta = abi.encode("US-Election-2025 Index");
-```
-
-> **Note:** `ids` must be strictly sorted (`<`) and contain no duplicates.
-
-Call:
-
-```solidity
-(bytes32 salt, address predicted) = factory.prepareIndex(ids, meta);
-```
-
-### 3. Deploy the Index Token
-
-```solidity
-address index = factory.createIndex(ids, meta);
-```
-
-If an index with the same `(ids, meta)` already exists, `createIndex` reverts; use `factory.getIndex(salt)` to fetch it.
-
-### 4. Mint / Burn
-
-```solidity
-// Approve the CTF contract once
-ctf.setApprovalForAll(address(index), true);
-
-// Wrap 100 units of each position into 100 index tokens
-index.mint(100 ether);
-
-// Unwrap later
-index.burn(50 ether);
-```
+* **Storage-in-code**
+  The proxy stores all basket parameters in the contract’s **code section** (via `Clones.fetchCloneArgs`).
+  The base contract exposes cheap getters (`components()`, `conditionIds()`, etc.) that read this data with `extcodecopy`, so **no storage slots** are consumed for immutable data.
 
 ---
 
-## Contract Interfaces
+## 3. Invariants enforced by the Factory
 
-### `CTFIndexFactory`
+1. `components.length == conditionIds.length == indexSets.length`.
+2. Every `conditionId` appears **exactly once** inside an index (prevents double counting).
+3. `indexSet` is non-zero and `< 2^outcomeSlotCount`.
+4. Positions are **sorted ascending** to make the deterministic address unique.
+5. During `createIndex` the caller funds each component with `funding` units; the factory verifies that the freshly minted index token balance equals `funding`.
 
-| Function                                  | Purpose                                                           |
-| ----------------------------------------- | ----------------------------------------------------------------- |
-| `prepareIndex(uint256[] ids, bytes meta)` | Validates the basket and returns `(salt, predictedAddress)`.      |
-| `createIndex(uint256[] ids, bytes meta)`  | Deploys the `CTFIndexToken` via CREATE2 and emits `IndexCreated`. |
-| `getIndex(bytes32 salt)`                  | Deterministic lookup of an existing index.                        |
-
-### `CTFIndexToken`
-
-| Function               | Purpose                                                                                                          |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `mint(uint256 amount)` | Transfers `amount` of **each** underlying position from caller → contract, then mints `amount` ERC-20 to caller. |
-| `burn(uint256 amount)` | Burns `amount` ERC-20 from caller, then returns `amount` of each position back to caller.                        |
-| `ids()`                | Returns the ordered list of wrapped position IDs.                                                                |
-| `metadata()`           | Arbitrary basket metadata set at creation.                                                                       |
+Violations revert with typed custom errors (`LengthMismatch`, `InvalidIndexSet`, …).
 
 ---
 
-## Security & Limitations
+## 4. External APIs
 
-* **Unaudited code** – use at your own risk.
-* No fee mechanism: mint and burn are always net-zero; if you need protocol revenue, layer it externally.
-* Factory only checks that each `id` belongs to the supplied `conditionIds`. It does **not** verify market status (open/closed) or payout progress.
-* Gas cost scales linearly with `ids.length` (max < 256 by design).
+### BaseConditionalTokenIndex
 
----
+| Function                                                                                   | Description                                                                  |
+| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `deposit(uint256 amount)`                                                                  | Caller transfers *amount* of **each** component → index tokens minted 1 : 1. |
+| `withdraw(uint256 amount)`                                                                 | Burns index tokens and returns `amount` of each component.                   |
+| `components()` / `conditionIds()` / `indexSets()`                                          | Immutable basket description.                                                |
+| `encodedSpecifications()`                                                                  | Arbitrary off-chain metadata bytes supplied when the index was created.      |
+| Standard ERC-20 (`transfer`, `approve`, etc.) and ERC-1155 receiver hooks are implemented. |                                                                              |
 
-## Extending
+### ConditionalTokensIndexFactory
 
-* Add fee hooks to `mint` / `burn` (e.g., 10 bp protocol fee).
-* Plug a price oracle into `CTFIndexToken` so the index can be used as collateral.
-* Build UI helpers that generate the sorted ID list automatically from market URLs.
+| Function                                                                 | Purpose                                                                             |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `createIndex(IndexImage image, bytes initData, uint256 funding)`         | Deploy a new index and seed it with *funding* units of each position.               |
+| `mergeIndex(impl, specs, initData, address[] indexList, uint256 amount)` | Burns `amount` units of N existing indexes, re-mints them into a **merged** basket. |
+| `predictDeterministicAddressWithImmutableArgs` (via `computeIndex`)      | Pure address calculation without on-chain deployment.                               |
+| `composeIndex`                                                           | Internal helper that validates and encodes the immutable args.                      |
 
----
+> **Note** `splitIndex` is stubbed but not yet implemented – implementers can mirror the merge logic.
 
-## Development Scripts (Foundry)
-
-```bash
-forge script scripts/Deploy.s.sol --rpc-url $RPC --private-key $PK --broadcast
-forge script scripts/MintBurn.s.sol  --rpc-url $RPC --private-key $PK --broadcast
-```
-
-See the `scripts/` folder for template scripts.
 
 ---
 
-## License
+## 6. Extending the Index
 
-[MIT](LICENSE)
+1. **Override `_init(bytes)`** in a custom contract that inherits `BaseConditionalTokenIndex` to hook in fee logic, whitelist checks, etc.
+2. Pass the new implementation address in `IndexImage.impl` when calling the factory.
+
+All invariants and deterministic address rules remain unchanged because the basket data lives in the proxy’s bytecode, not in the child contract.
 
 ---
 
-## Acknowledgements
+## 7. Gas & Security Notes
 
-Built on top of **Gnosis Conditional Tokens** and **OpenZeppelin Contracts**.
-Special thanks to the research community exploring the intersection of prediction markets and DeFi index products.
+* **No storage writes** on read-only getters → extremely cheap basket introspection.
+* Mint / burn flow uses `safeBatchTransferFrom`, so the index never holds stale approval allowances.
+* ERC-165 is implemented; interfaces (`IERC1155Receiver`, custom index interface) can be discovered.
+* Because the basket is immutable, a compromised implementation **cannot** silently change its constituents – it would need a new deployment, producing a new address.
+
+---
+
+## 8. License
+
+All contracts are released under **MIT**.

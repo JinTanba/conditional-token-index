@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/proxy/Clones.sol";
 import {IConditionalTokens} from "./interfaces/IConditionalTokens.sol";
 import {BaseConditionalTokenIndex} from "./BaseConditionalTokenIndex.sol";
 
-contract ConditionalTokensIndexComposer {
+contract ConditionalTokensIndexFactory {
     IConditionalTokens public immutable ctf;
     address public immutable collateral;
 
@@ -139,7 +139,7 @@ contract ConditionalTokensIndexComposer {
             );
         }
 
-        //TODO: XOR vs sort
+        //TODO:do math
         for (uint256 i = 0; i < n; ++i) {
             for (uint256 j = i + 1; j < n; ++j) {
                 if (components[j] < components[i]) {
