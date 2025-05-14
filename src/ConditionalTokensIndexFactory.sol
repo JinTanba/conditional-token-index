@@ -4,8 +4,9 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/proxy/Clones.sol";
 import {IConditionalTokens} from "./interfaces/IConditionalTokens.sol";
 import {BaseConditionalTokenIndex} from "./BaseConditionalTokenIndex.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 
-contract ConditionalTokensIndexFactory {
+contract ConditionalTokensIndexFactory is IERC1155Receiver {
     IConditionalTokens public immutable ctf;
     address public immutable collateral;
 
@@ -52,6 +53,7 @@ contract ConditionalTokensIndexFactory {
         uint256[] memory fundingBatch = new uint256[](components.length);
         for(uint256 i;i<components.length;i++) fundingBatch[i] = funding;
         IConditionalTokens(ctf).safeBatchTransferFrom(msg.sender, address(this), components, fundingBatch, bytes(""));
+        IConditionalTokens(ctf).setApprovalForAll(instance, true);
         indexInstance.deposit(funding);
         if(indexInstance.balanceOf(address(this)) != funding) revert FailIndexInit("balance");
         indexInstance.transfer(msg.sender,funding);
@@ -88,6 +90,7 @@ contract ConditionalTokensIndexFactory {
              }
         }
         newInstance = _createIndex(IndexImage(impl,newConditionIds,newIndexSets,specifications), initData);
+        IConditionalTokens(ctf).setApprovalForAll(newInstance, true);
         BaseConditionalTokenIndex(newInstance).deposit(mergeAmount);
         BaseConditionalTokenIndex(newInstance).transfer(msg.sender, mergeAmount);
     }
@@ -166,6 +169,34 @@ contract ConditionalTokensIndexFactory {
     function $(address instance) internal view returns (StorageInCode memory args) {
         args = abi.decode(Clones.fetchCloneArgs(instance), (StorageInCode));
     }
+
+
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure override returns (bytes4) {
+        return this.onERC1155Received.selector;
+    }
+
+    function onERC1155BatchReceived(
+        address,
+        address,
+        uint256[] calldata,
+        uint256[] calldata,
+        bytes calldata
+    ) external pure override returns (bytes4) {
+        return this.onERC1155BatchReceived.selector;
+    }
+
+    function supportsInterface(bytes4 interfaceId)
+        public
+        pure
+        override
+        returns (bool)
+    {
+        return interfaceId == type(IERC1155Receiver).interfaceId;
+    }
+
+
+
+
 
 
 }
