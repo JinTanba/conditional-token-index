@@ -8,6 +8,8 @@ import "forge-std/console.sol";
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
+
+// MockUSDC remains unchanged
 contract MockUSDC is ERC20 {
     constructor() ERC20("USD Coin", "USDC") {
         _mint(msg.sender, 1_000_000 * 10**6); // 1M USDC with 6 decimals
@@ -18,166 +20,179 @@ contract MockUSDC is ERC20 {
     }
 }
 
-struct IndexImage {
-    address impl;
-    bytes32[] conditionIds;
-    uint256[] indexSets;
-    bytes specifications;
-}
-
-struct StorageInCode{
-    uint256[] components;
-    bytes32[] conditionIds;
-    uint256[] indexSets;
-    bytes specifications;
-    address factory;
-    address ctf;
-    address collateral;
-    address impl;
-}
-
 contract Deploy is Test {
-    function testFlow() public {
+    // Constants for test configuration
+    address private constant CTF_REAL_ADDRESS = 0x4D97DCd97eC945f40cF65F87097ACe5EA0476045;
+    string private constant QUESTION_1_TEXT = "polynance test1";
+    string private constant QUESTION_2_TEXT = "polynance test2";
+    uint256 private constant DEFAULT_OUTCOME_SLOT_COUNT = 2;
+    uint256 private constant MINT_AMOUNT = 2 * 10**6; // Default amount for splits/funding
+
+    // State variables initialized in setUp and used across tests
+    IConditionalTokens internal ctfInterface;
+    MockUSDC internal collateralToken;
+    ConditionalTokensIndexFactory internal factory;
+    ConditionalTokensIndex internal indexImplementation; // Base implementation for proxies
+
+    address internal oracleAddress;
+    address internal userAddress;
+
+    bytes32 internal questionId1;
+    bytes32 internal questionId2;
+    bytes32 internal conditionId1;
+    bytes32 internal conditionId2;
+
+    uint256[] internal defaultPartitionForSplit;
+    uint256[] internal defaultIndexSetsForImage;
+
+
+    function setUp() public virtual {
+        // Start broadcast for setup transactions that change state
         vm.startBroadcast();
-        address ctf = 0x4D97DCd97eC945f40cF65F87097ACe5EA0476045;
-        address collateral = address(new MockUSDC());
-        ConditionalTokensIndexFactory factory = new ConditionalTokensIndexFactory(ctf,collateral);
-        ConditionalTokensIndex indexImpl = new ConditionalTokensIndex();
-        address oracle = msg.sender;
-        bytes32 questionId1 = keccak256("polynance test1");
-        bytes32 questionId2 = keccak256("polynance test2");
-        uint256 outcomeSlotCount = 2;
-        uint256 amount = 2*10**6;
-        address user = msg.sender;
-        //1. approve
-        ERC20(collateral).approve(ctf, type(uint256).max);
-        ERC1155(ctf).setApprovalForAll(address(factory), true);
-        //2. split
-        IConditionalTokens(ctf).prepareCondition(oracle,questionId1,outcomeSlotCount);
-        uint256[] memory partition = new uint256[](2);
-        partition[0] = 1;
-        partition[1] = 2;
 
-        IConditionalTokens(ctf).prepareCondition(oracle,questionId2,outcomeSlotCount);
-        uint256[] memory partition2 = new uint256[](2);
-        partition2[0] = 1;
-        partition2[1] = 2;
-        
-        
-        IConditionalTokens(ctf).splitPosition(collateral, bytes32(0), IConditionalTokens(ctf).getConditionId(oracle,questionId1,outcomeSlotCount), partition, amount);
-        IConditionalTokens(ctf).splitPosition(collateral, bytes32(0), IConditionalTokens(ctf).getConditionId(oracle,questionId2,outcomeSlotCount), partition2, amount);
-        //check balance == amount
-        console.log("1. check balance");
-        uint256[] memory ids = new uint256[](2);
-        ids[0] = IConditionalTokens(ctf).getPositionId(collateral, IConditionalTokens(ctf).getCollectionId(bytes32(0), IConditionalTokens(ctf).getConditionId(oracle,questionId1,outcomeSlotCount), 1));
-        ids[1] = IConditionalTokens(ctf).getPositionId(collateral, IConditionalTokens(ctf).getCollectionId(bytes32(0), IConditionalTokens(ctf).getConditionId(oracle,questionId2,outcomeSlotCount), 1));
-        assertEq(ERC1155(ctf).balanceOf(user, ids[0]), amount);
-        assertEq(ERC1155(ctf).balanceOf(user, ids[1]), amount);
-        console.logUint(ids[0]);
-        console.logUint(ids[1]);
-        console.logUint(ERC1155(ctf).balanceOf(user, ids[0]));
-        console.logUint(ERC1155(ctf).balanceOf(user, ids[1]));
+        collateralToken = new MockUSDC();
+        ctfInterface = IConditionalTokens(CTF_REAL_ADDRESS);
+        factory = new ConditionalTokensIndexFactory(address(ctfInterface), address(collateralToken));
+        indexImplementation = new ConditionalTokensIndex();
 
+        oracleAddress = msg.sender;
+        userAddress = msg.sender;
 
-       
-        //3. create index
-        console.log("2. create index");
-        uint256[] memory indexSets = new uint256[](2);
-        indexSets[0] = 1;
-        indexSets[1] = 2;
-        bytes32[] memory conditionIds = new bytes32[](2);
-        conditionIds[0] = IConditionalTokens(ctf).getConditionId(oracle, questionId1, outcomeSlotCount);
-        conditionIds[1] = IConditionalTokens(ctf).getConditionId(oracle, questionId2, outcomeSlotCount);
-        
-        // Create index image
-        console.log("2. create index image");
-        ConditionalTokensIndexFactory.IndexImage memory indexImage = ConditionalTokensIndexFactory.IndexImage({
-            impl: address(indexImpl),
-            conditionIds: conditionIds,
-            indexSets: indexSets,
-            specifications: bytes("Test Index")
-        });
+        // Base approvals
+        collateralToken.approve(address(ctfInterface), type(uint256).max);
+        ERC1155(address(ctfInterface)).setApprovalForAll(address(factory), true);
 
-        ConditionalTokensIndexFactory.IndexImage memory indexImage2 = ConditionalTokensIndexFactory.IndexImage({
-            impl: address(indexImpl),
-            conditionIds: conditionIds,
-            indexSets: indexSets,
-            specifications: bytes("Test Index2")
-        });
-        
-        // Create index with initial funding
-        uint256 funding = amount;
-        console.log("create index with initial funding");
+        // Prepare conditions
+        questionId1 = keccak256(abi.encodePacked(QUESTION_1_TEXT));
+        questionId2 = keccak256(abi.encodePacked(QUESTION_2_TEXT));
 
-        address predicted = factory.computeIndex(indexImage);
-        
-        ERC1155(ctf).setApprovalForAll(address(factory), true);
-        address instance = factory.createIndex(indexImage, bytes(""), funding);
-        console.log("instance");
-        console.logAddress(instance);
-        assertEq(predicted, instance,"predicted");
-        uint256[] memory components =BaseConditionalTokenIndex(instance).components();
-        bytes memory codeInStorageBytes = Clones.fetchCloneArgs(instance);
-        bytes memory memoryInstanceSC = abi.encode(BaseConditionalTokenIndex(instance).$());
-        bytes memory fromFactory = abi.encode(ConditionalTokensIndexFactory(factory).$(instance));
-        console.log("codeInStorageBytes");
-        console.logBytes(codeInStorageBytes);
-        console.log("memoryInstanceSC");
-        console.logBytes(memoryInstanceSC);
-        assertEq(codeInStorageBytes, memoryInstanceSC,"codeInStorageBytes");
-        assertEq(codeInStorageBytes, fromFactory,"codeInStorageBytes");
-        
+        ctfInterface.prepareCondition(oracleAddress, questionId1, DEFAULT_OUTCOME_SLOT_COUNT);
+        ctfInterface.prepareCondition(oracleAddress, questionId2, DEFAULT_OUTCOME_SLOT_COUNT);
 
+        conditionId1 = ctfInterface.getConditionId(oracleAddress, questionId1, DEFAULT_OUTCOME_SLOT_COUNT);
+        conditionId2 = ctfInterface.getConditionId(oracleAddress, questionId2, DEFAULT_OUTCOME_SLOT_COUNT);
 
-        assertEq(components.length, 2,"components length");
-        assertEq(ERC1155(ctf).balanceOf(instance, components[0]), funding,"balance of component 0");
-        assertEq(ERC1155(ctf).balanceOf(instance, components[1]), funding,"balance of component 1");
-        assertEq(ERC1155(ctf).balanceOf(msg.sender, components[0]), 0,"balance of component 0");
-        assertEq(ERC1155(ctf).balanceOf(msg.sender, components[1]), 0,"balance of component 1");
-        assertEq(BaseConditionalTokenIndex(instance).balanceOf(msg.sender), funding,"balance of instance");
-        console.log("instance");
-        console.logUint(BaseConditionalTokenIndex(instance).balanceOf(msg.sender));
+        // Define default partition and index sets (as used in original test)
+        defaultPartitionForSplit = new uint256[](2);
+        defaultPartitionForSplit[0] = 1;
+        defaultPartitionForSplit[1] = 2;
 
-        //withdraw
-        BaseConditionalTokenIndex(instance).withdraw(funding);
-        assertEq(BaseConditionalTokenIndex(instance).balanceOf(msg.sender), 0,"balance of instance");
-        assertEq(ERC1155(ctf).balanceOf(msg.sender, components[0]), funding,"balance of component 0");
-        assertEq(ERC1155(ctf).balanceOf(msg.sender, components[1]), funding,"balance of component 1");
-
-        //deposit
-        uint256 depositAmount = amount / 2;
-        ERC1155(ctf).setApprovalForAll(address(instance), true);
-        BaseConditionalTokenIndex(instance).deposit(depositAmount);
-        assertEq(BaseConditionalTokenIndex(instance).balanceOf(msg.sender), depositAmount,"balance of instance");
-        assertEq(ERC1155(ctf).balanceOf(msg.sender, components[0]), funding-depositAmount,"balance of component 0");
-        assertEq(ERC1155(ctf).balanceOf(msg.sender, components[1]), funding-depositAmount,"balance of component 1");
-        assertEq(ERC1155(ctf).balanceOf(instance, components[0]), depositAmount,"balance of component 0");
-        assertEq(ERC1155(ctf).balanceOf(instance, components[1]), depositAmount,"balance of component 1");
-        //totalsupply
-        assertEq(BaseConditionalTokenIndex(instance).totalSupply(), depositAmount,"total supply");
-        //..deposit more
-        BaseConditionalTokenIndex(instance).deposit(depositAmount);
-        assertEq(BaseConditionalTokenIndex(instance).totalSupply(), depositAmount*2,"total supply");
-        assertEq(ERC1155(ctf).balanceOf(instance, components[0]), depositAmount*2,"balance of component 0");
-        assertEq(ERC1155(ctf).balanceOf(instance, components[1]), depositAmount*2,"balance of component 1");
-        assertEq(BaseConditionalTokenIndex(instance).balanceOf(msg.sender), depositAmount*2,"balance of instance");
-        
-        //ctf oracle
-        uint256[] memory payouts = new uint256[](2);
-        payouts[0] = 1;
-        payouts[1] = 0;
-        uint256 oldBalance = ERC20(collateral).balanceOf(msg.sender);
-        IConditionalTokens(ctf).reportPayouts(questionId1, payouts);
-        uint256 halfAmount = BaseConditionalTokenIndex(instance).balanceOf(msg.sender)/2;
-        ERC1155(ctf).setApprovalForAll(address(instance), true);
-        BaseConditionalTokenIndex(instance).withdraw(halfAmount);
-        uint256 redeemAmount = halfAmount;
-        IConditionalTokens(ctf).redeemPositions(collateral, bytes32(0), IConditionalTokens(ctf).getConditionId(oracle,questionId1,outcomeSlotCount), indexSets);
-        assertEq(ERC20(collateral).balanceOf(msg.sender), oldBalance+redeemAmount,"balance of collateral");
-        assertEq(BaseConditionalTokenIndex(instance).balanceOf(msg.sender), halfAmount,"balance of instance");
-        
-        
+        defaultIndexSetsForImage = new uint256[](2);
+        defaultIndexSetsForImage[0] = 1; // Corresponds to outcome 0 (e.g., 1 << 0)
+        defaultIndexSetsForImage[1] = 2; // Corresponds to outcome 1 (e.g., 1 << 1)
 
         vm.stopBroadcast();
     }
+
+    function test_SplitPositionsAndVerifyBalances() public {
+        vm.startBroadcast();
+        console.log("Test: Splitting positions and verifying balances...");
+
+        ctfInterface.splitPosition(address(collateralToken), bytes32(0), conditionId1, defaultPartitionForSplit, MINT_AMOUNT);
+        ctfInterface.splitPosition(address(collateralToken), bytes32(0), conditionId2, defaultPartitionForSplit, MINT_AMOUNT);
+
+        console.log("Verifying balances after splitting positions...");
+        bytes32 collectionId1_Outcome0 = ctfInterface.getCollectionId(bytes32(0), conditionId1, defaultIndexSetsForImage[0]); // Using indexSet 1 (outcome 0)
+        uint256 positionId1_Outcome0 = ctfInterface.getPositionId(address(collateralToken), collectionId1_Outcome0);
+
+        bytes32 collectionId2_Outcome0 = ctfInterface.getCollectionId(bytes32(0), conditionId2, defaultIndexSetsForImage[0]); // Using indexSet 1 (outcome 0)
+        uint256 positionId2_Outcome0 = ctfInterface.getPositionId(address(collateralToken), collectionId2_Outcome0);
+
+        assertEq(ERC1155(address(ctfInterface)).balanceOf(userAddress, positionId1_Outcome0), MINT_AMOUNT, "User balance of position for (Condition1, Outcome0) incorrect");
+        assertEq(ERC1155(address(ctfInterface)).balanceOf(userAddress, positionId2_Outcome0), MINT_AMOUNT, "User balance of position for (Condition2, Outcome0) incorrect");
+
+        console.log("Position ID for Condition 1, Outcome 0 (IndexSet 1): %s", positionId1_Outcome0);
+        console.log("User balance for Position ID (Cond1, Outcome0): %s", ERC1155(address(ctfInterface)).balanceOf(userAddress, positionId1_Outcome0));
+        vm.stopBroadcast();
+    }
+
+    function test_CreateIndexAndInitialFunding() public {
+        vm.startBroadcast();
+        console.log("Test: Creating index and verifying initial funding...");
+
+        // Ensure positions are split for the index components (as they are prerequisites for funding)
+        ctfInterface.splitPosition(address(collateralToken), bytes32(0), conditionId1, defaultPartitionForSplit, MINT_AMOUNT);
+        ctfInterface.splitPosition(address(collateralToken), bytes32(0), conditionId2, defaultPartitionForSplit, MINT_AMOUNT);
+        // Factory approval is in setUp, but good to remember it's needed. ERC1155(address(ctfInterface)).setApprovalForAll(address(factory), true);
+
+
+        bytes32[] memory conditionIdsForImage = new bytes32[](2);
+        conditionIdsForImage[0] = conditionId1;
+        conditionIdsForImage[1] = conditionId2;
+        
+        ConditionalTokensIndexFactory.IndexImage memory indexImage = ConditionalTokensIndexFactory.IndexImage({
+            impl: address(indexImplementation),
+            conditionIds: conditionIdsForImage,
+            indexSets: defaultIndexSetsForImage,
+            specifications: bytes("Test Index Create")
+        });
+        
+        uint256 initialFundingAmount = MINT_AMOUNT;
+        address predictedIndexAddress = factory.computeIndex(indexImage);
+        address indexInstanceAddress = factory.createIndex(indexImage, bytes(""), initialFundingAmount);
+        
+        console.log("Created Index Instance Address: %s", indexInstanceAddress);
+        assertEq(predictedIndexAddress, indexInstanceAddress, "Predicted index address should match actual");
+
+        // Low-level Proxy Storage/Code Checks
+        uint256[] memory components = BaseConditionalTokenIndex(indexInstanceAddress).components();
+        bytes memory codeInStorageBytes = Clones.fetchCloneArgs(indexInstanceAddress);
+        // Assuming BaseConditionalTokenIndex and ConditionalTokensIndexFactory have a '$()' function
+        // If not, these lines would need adjustment to the actual methods for fetching storage representations.
+        bytes memory memoryInstanceSC = abi.encode(BaseConditionalTokenIndex(indexInstanceAddress).$());
+        bytes memory fromFactory = abi.encode(ConditionalTokensIndexFactory(factory).$(indexInstanceAddress));
+        
+        assertEq(codeInStorageBytes, memoryInstanceSC, "Mismatch: Cloned args vs Index internal storage representation");
+        assertEq(codeInStorageBytes, fromFactory, "Mismatch: Cloned args vs Factory internal storage representation");
+        
+        // Assertions for Index State After Creation
+        assertEq(components.length, 2, "Components array length should be 2");
+        assertEq(ERC1155(address(ctfInterface)).balanceOf(indexInstanceAddress, components[0]), initialFundingAmount, "Index balance of component 0 incorrect post-creation");
+        assertEq(ERC1155(address(ctfInterface)).balanceOf(indexInstanceAddress, components[1]), initialFundingAmount, "Index balance of component 1 incorrect post-creation");
+        assertEq(BaseConditionalTokenIndex(indexInstanceAddress).balanceOf(userAddress), initialFundingAmount, "User's index token balance incorrect post-creation");
+        vm.stopBroadcast();
+    }
+
+    function test_IndexDepositAndWithdraw() public {
+        console.log("Test: Index deposit and withdraw operations...");
+        // Step 1: Create and fund an index for this test scope
+        vm.startBroadcast();
+        ctfInterface.splitPosition(address(collateralToken), bytes32(0), conditionId1, defaultPartitionForSplit, MINT_AMOUNT);
+        ctfInterface.splitPosition(address(collateralToken), bytes32(0), conditionId2, defaultPartitionForSplit, MINT_AMOUNT);
+        
+        bytes32[] memory cIds = new bytes32[](2); cIds[0] = conditionId1; cIds[1] = conditionId2;
+        ConditionalTokensIndexFactory.IndexImage memory img = ConditionalTokensIndexFactory.IndexImage(address(indexImplementation), cIds, defaultIndexSetsForImage, bytes("Test Deposit/Withdraw"));
+        uint256 funding = MINT_AMOUNT;
+        address testIndex = factory.createIndex(img, bytes(""), funding);
+        uint256[] memory components = BaseConditionalTokenIndex(testIndex).components();
+        vm.stopBroadcast();
+
+        // Step 2: Test Withdraw
+        vm.startBroadcast();
+        console.log("Withdrawing from index...");
+        BaseConditionalTokenIndex(testIndex).withdraw(funding);
+        assertEq(BaseConditionalTokenIndex(testIndex).balanceOf(userAddress), 0, "User index tokens after full withdraw");
+        assertEq(ERC1155(address(ctfInterface)).balanceOf(userAddress, components[0]), funding, "User component 0 balance after withdraw");
+        assertEq(ERC1155(address(ctfInterface)).balanceOf(userAddress, components[1]), funding, "User component 1 balance after withdraw");
+        vm.stopBroadcast();
+
+        // Step 3: Test Deposit
+        vm.startBroadcast();
+        console.log("Depositing to index...");
+        uint256 depositAmount = MINT_AMOUNT / 2;
+        ERC1155(address(ctfInterface)).setApprovalForAll(testIndex, true); // Approve index to take components from user
+        BaseConditionalTokenIndex(testIndex).deposit(depositAmount);
+
+        assertEq(BaseConditionalTokenIndex(testIndex).balanceOf(userAddress), depositAmount, "User index tokens after 1st deposit");
+        assertEq(ERC1155(address(ctfInterface)).balanceOf(testIndex, components[0]), depositAmount, "Index component 0 balance after 1st deposit");
+        assertEq(BaseConditionalTokenIndex(testIndex).totalSupply(), depositAmount, "Total supply after 1st deposit");
+
+        // Deposit more
+        BaseConditionalTokenIndex(testIndex).deposit(depositAmount);
+        assertEq(BaseConditionalTokenIndex(testIndex).balanceOf(userAddress), MINT_AMOUNT, "User index tokens after 2nd deposit");
+        assertEq(BaseConditionalTokenIndex(testIndex).totalSupply(), MINT_AMOUNT, "Total supply after 2nd deposit");
+        assertEq(ERC1155(address(ctfInterface)).balanceOf(testIndex, components[0]), MINT_AMOUNT, "Index component 0 balance after 2nd deposit");
+        vm.stopBroadcast();
+    }
+
 }

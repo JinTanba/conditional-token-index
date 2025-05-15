@@ -9,16 +9,6 @@ import "forge-std/console.sol";
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-contract MockUSDC is ERC20 {
-    constructor() ERC20("USD Coin", "USDC") {
-        _mint(msg.sender, 1_000_000 * 10**6); // 1M USDC with 6 decimals
-    }
-
-    function decimals() public pure override returns (uint8) {
-        return 6;
-    }
-}
-
 contract Compose is Script {
     address polymarket = 0xC5d563A36AE78145C45a50134d48A1215220f80a;
     address collateral =0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174;
@@ -31,8 +21,6 @@ contract Compose is Script {
     // // 0x354b6793f25222186de8d3c9ca1e444e71a6d7b7db276bf1aa50b95b8d47cb65,
     // // 0x5bf33c43674b2bc7452acca8d971ff8a84ccee5fbce29b9d4b75f8f895aa52c2
     // ];
-    
-
     function run() public {
         vm.startBroadcast();
         ERC20(collateral).approve(address(ctf), type(uint256).max);
@@ -42,7 +30,6 @@ contract Compose is Script {
         conditions[2] = 0x354b6793f25222186de8d3c9ca1e444e71a6d7b7db276bf1aa50b95b8d47cb65;
         conditions[3] = 0x5bf33c43674b2bc7452acca8d971ff8a84ccee5fbce29b9d4b75f8f895aa52c2;
         uint256 perUsdc = 2*10**6;
-        uint256 k=0;
         uint256[] memory yesSlots = new uint256[](conditions.length);
         uint256[] memory noSlots = new uint256[](conditions.length);
         uint256[] memory binary = new uint256[](2);
@@ -54,7 +41,7 @@ contract Compose is Script {
             require(slots>0,"InvalidCondition");
             yesSlots[i] = 1;
             noSlots[i] = 2;
-            // ctf.splitPosition(collateral,bytes32(0),conditionId,binary,perUsdc);
+            ctf.splitPosition(collateral,bytes32(0),conditionId,binary,perUsdc);
         } 
 
         ConditionalTokensIndexFactory.IndexImage memory yes517=ConditionalTokensIndexFactory.IndexImage({
@@ -70,22 +57,14 @@ contract Compose is Script {
             specifications:abi.encodePacked("517Down")
         });
         ctf.setApprovalForAll(address(factory),true);
-        ctf.setApprovalForAll(factory.computeIndex(yes517),true);
-        BaseConditionalTokenIndex(factory.computeIndex(yes517)).withdraw(5*10**6);
-        BaseConditionalTokenIndex(factory.computeIndex(no517)).withdraw(5*10**6);
-        
-
-        // ctf.setApprovalForAll(address(factory),true);
-        // address yes517Instance = factory.createIndex(yes517,bytes(""),perUsdc);
-        // address no517Instance = factory.createIndex(no517,bytes(""),perUsdc);
-        // require(ERC20(yes517Instance).totalSupply()==ctf.balanceOf(yes517Instance,BaseConditionalTokenIndex(yes517Instance).components()[0]),"InvalidBalance");
-        // require(ERC20(no517Instance).totalSupply()==ctf.balanceOf(no517Instance,BaseConditionalTokenIndex(no517Instance).components()[0]),"InvalidBalance");
-        
+        ctf.setApprovalForAll(address(factory),true);
+        address yes517Instance = factory.createIndex(yes517,bytes(""),perUsdc);
+        address no517Instance = factory.createIndex(no517,bytes(""),perUsdc);
+        console.log("yes517Instance");
+        console.logAddress(yes517Instance);
+        console.log("no517Instance");
+        console.logAddress(no517Instance);
         vm.stopBroadcast();
-    }
-
-    function buy() public {
-
     }
 
 
