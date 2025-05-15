@@ -9,6 +9,6 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "polynance_sdk": "^1.0.1-beta.1.4"
+    "polynance_sdk": "^1.0.1-beta.1.6"
   }
 }

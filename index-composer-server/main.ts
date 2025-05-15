@@ -1,4 +1,4 @@
-import { PolynanceSDK } from "polynance_sdk";
+import { ExecuteOrderParams, PolynanceSDK } from "polynance_sdk";
 import { Wallet } from "@ethersproject/wallet";
 import { JsonRpcProvider } from "@ethersproject/providers";
 import dotenv from "dotenv";
@@ -6,7 +6,7 @@ dotenv.config();
 
 async function main() {
   try {
-    const forkPolygonRpc = process.env.POLYGON_RPC_URL;
+    const forkPolygonRpc = process.env.POLYGON_RPC;
     const testPrivateKey = process.env.PRIVATE_KEY;
 
     if(!forkPolygonRpc || !testPrivateKey) {
@@ -15,33 +15,55 @@ async function main() {
     const wallet = new Wallet(testPrivateKey, new JsonRpcProvider(forkPolygonRpc));
 
     //⚡️ Polynance SDK
-    const sdk = new PolynanceSDK({wallet});
+    const sdk = new PolynanceSDK({wallet,apiBaseUrl:"http://localhost:9000"});
 
-    const provider = "polymarket";
-    const slug = "will-google-have-the-top-ai-model-on-may-31";
-    const binary = "YES";
-    const buyOrSell = "BUY";
-    const fundingUsdc = 10;
+    const orders : ExecuteOrderParams[] = [
+      {
+        provider: "polymarket",
+        marketIdOrSlug: "519068",
+        positionIdOrName: "YES",
+        buyOrSell: "SELL",
+        usdcFlowAbs: 6,
+      },
+      {
+        provider: "polymarket",
+        marketIdOrSlug: "519066",
+        positionIdOrName: "NO",
+        buyOrSell: "SELL",
+        usdcFlowAbs: 6,
+      },
+      {
+        provider: "polymarket",
+        marketIdOrSlug: "535793",
+        positionIdOrName: "YES",
+        buyOrSell: "SELL",
+        usdcFlowAbs: 6,
+      },
+      {
+        provider: "polymarket",
+        marketIdOrSlug: "will-the-indiana-pacers-win-the-2025-nba-finals",
+        positionIdOrName: "YES",
+        buyOrSell: "SELL",
+        usdcFlowAbs: 6,
+      },
+      {
+        provider: "polymarket",
+        marketIdOrSlug: "will-xai-have-the-top-ai-model-on-december-31",
+        positionIdOrName: "NO",
+        buyOrSell: "SELL",
+        usdcFlowAbs: 6,
+      }
+    ];
 
-    const signedOrder = await sdk.buildOrder({
-        provider,
-        marketIdOrSlug: slug,
-        positionIdOrName: binary,
-        buyOrSell,
-        usdcFlowAbs: fundingUsdc,
-    });
-    console.log("Executing order...", signedOrder);
     //Execute Order
-    const result = await sdk.executeOrder(signedOrder); //propose price is in here
-    console.log("open order: ", sdk.asContext(result));
+    for(const order of orders) {
+      const signedOrder = await sdk.buildOrder(order);
+      console.log("Executing order...", signedOrder);
+      //Execute Order
+      const result = await sdk.executeOrder(signedOrder); //propose price is in here
+      console.log("open order: ", sdk.asContext(result));
+    }
 
-    //position
-    console.log("Getting positions...");
-    const currentPosition = await sdk.traderPositions("polymarket", wallet.address);
-    console.log("user polymarket positions", currentPosition);
-
-    //verify price
-    console.log("Starting verification interval...");
     setInterval(async () => {
       try {
         const verifyAble = await sdk.scanPendingPriceData();
@@ -49,6 +71,7 @@ async function main() {
         console.log("scanPendingPriceData", verifyAble);
         console.log("pendingPriceData", orderIds);
         if(verifyAble) {
+            //execute indexfactory and check
             await sdk.verifyPrice(); //send oracle tx bia server
         } else {
             console.log("no pending price data");

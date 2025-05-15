@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
+import {Side, Order, SignatureType,OrderStatus} from "../libs/PolymarketOrderStruct.sol";
 
 interface ICTFExchange {
     event FeeCharged(address indexed receiver, uint256 tokenId, uint256 amount);
@@ -31,27 +32,6 @@ interface ICTFExchange {
     event TokenRegistered(uint256 indexed token0, uint256 indexed token1, bytes32 indexed conditionId);
     event TradingPaused(address indexed pauser);
     event TradingUnpaused(address indexed pauser);
-
-    struct Order {
-        uint256 salt;
-        address maker;
-        address signer;
-        address taker;
-        uint256 tokenId;
-        uint256 makerAmount;
-        uint256 takerAmount;
-        uint256 expiration;
-        uint256 nonce;
-        uint256 feeRateBps;
-        uint8 side;
-        uint8 signatureType;
-        bytes signature;
-    }
-
-    struct OrderStatus {
-        bool isFilledOrCancelled;
-        uint256 remaining;
-    }
 
     function addAdmin(address admin_) external;
     function addOperator(address operator_) external;
@@ -90,7 +70,7 @@ interface ICTFExchange {
         returns (bytes4);
     function onERC1155Received(address, address, uint256, uint256, bytes memory) external returns (bytes4);
     function operators(address) external view returns (uint256);
-    function orderStatus(bytes32) external view returns (bool isFilledOrCancelled, uint256 remaining);
+    function orderStatus(bytes32) external view returns (OrderStatus memory);
     function parentCollectionId() external view returns (bytes32);
     function pauseTrading() external;
     function paused() external view returns (bool);

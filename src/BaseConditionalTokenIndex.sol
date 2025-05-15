@@ -6,13 +6,14 @@ import "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 import "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
 import {IConditionalTokens} from "./interfaces/IConditionalTokens.sol";
+
+
+abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
 // @dev
 // Invariant conditions:
 // 1. If the set of positionids is the same, and the metadata and ctf addresses are the same, calculate the same indextoken.
 // 2. An indextoken is issued and can be withdrawn in a 1:1 ratio with the position token it contains.
 // 3. An indextoken cannot have two or more positions under the same conditionid.
-abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
-
     struct StorageInCode{
         uint256[] components;
         bytes32[] conditionIds;
@@ -150,3 +151,4 @@ abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
 }
 
 
+contract ConditionalTokensIndex is BaseConditionalTokenIndex {}

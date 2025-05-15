@@ -96,7 +96,6 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
     }
 
 
-
     function _recoveryIndexImage(address instance) internal view returns(IndexImage memory image) {
         StorageInCode memory codeInStorage = $(instance);
         bytes memory encoded = abi.encode(codeInStorage);
@@ -109,6 +108,8 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
     function _createIndex(IndexImage memory indexImage, bytes calldata initData) internal returns (address index) {
         (uint256[] memory components, bytes memory immutableArgs) = composeIndex(indexImage);
         bytes32 salt = keccak256(immutableArgs);
+        index = Clones.predictDeterministicAddressWithImmutableArgs(indexImage.impl, immutableArgs, salt);
+        if(index.code.length!=0) return index;
         index = Clones.cloneDeterministicWithImmutableArgs(indexImage.impl, immutableArgs, salt);
         BaseConditionalTokenIndex(index).initialize(initData);
         emit IndexCreated(index, components, indexImage.specifications);
@@ -136,7 +137,6 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
             for (uint256 j = 0; j < i; ++j) {
                 if (conditionIds[j] == conditionIds[i]) revert DuplicateCondition();
             }
-            //TODO: should accept nest condition pattern
             components[i] = ctf.getPositionId(
                 collateral, ctf.getCollectionId(bytes32(0), conditionIds[i], indexSets[i])
             );
@@ -166,7 +166,7 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
         
     }
 
-    function $(address instance) internal view returns (StorageInCode memory args) {
+    function $(address instance) public view returns (StorageInCode memory args) {
         args = abi.decode(Clones.fetchCloneArgs(instance), (StorageInCode));
     }
 
