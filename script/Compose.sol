@@ -15,12 +15,11 @@ contract Compose is Script {
     IConditionalTokens ctf = IConditionalTokens(0x4D97DCd97eC945f40cF65F87097ACe5EA0476045);
     ConditionalTokensIndexFactory factory = ConditionalTokensIndexFactory(0x934ED1a863BB08d68b74939cF4D8ad644AbC1d85);
     ConditionalTokensIndex indexImpl = ConditionalTokensIndex(0x70f7f2299B254e2E53ae7D67eb85d7bBE10CaDde);
-    // bytes32[] constant conditions= [
-    // // 0x3cade829b69b30436629ac0c2494d475211ba6f7e00e192a920653ba00b7db36,
-    // // 0x553728bcacf78928f84c20141df3927eba4e76846d67db8d354a111619501a6b,
-    // // 0x354b6793f25222186de8d3c9ca1e444e71a6d7b7db276bf1aa50b95b8d47cb65,
-    // // 0x5bf33c43674b2bc7452acca8d971ff8a84ccee5fbce29b9d4b75f8f895aa52c2
-    // ];
+    address priceOracle = 0x9b1B5d4c95530d747bfaad5934A8E5D448a28AF5;
+    // 0x3cade829b69b30436629ac0c2494d475211ba6f7e00e192a920653ba00b7db36,
+    // 0x553728bcacf78928f84c20141df3927eba4e76846d67db8d354a111619501a6b,
+    // 0x354b6793f25222186de8d3c9ca1e444e71a6d7b7db276bf1aa50b95b8d47cb65,
+    // 0x5bf33c43674b2bc7452acca8d971ff8a84ccee5fbce29b9d4b75f8f895aa52c2
     function run() public {
         vm.startBroadcast();
         ERC20(collateral).approve(address(ctf), type(uint256).max);
@@ -48,13 +47,15 @@ contract Compose is Script {
             impl:address(indexImpl),
             conditionIds:conditions,
             indexSets:yesSlots,
-            specifications:abi.encodePacked("517Up")
+            specifications:abi.encodePacked("517Up"),
+            priceOracle:priceOracle
         });
         ConditionalTokensIndexFactory.IndexImage memory no517=ConditionalTokensIndexFactory.IndexImage({
             impl:address(indexImpl),
             conditionIds:conditions,
             indexSets:noSlots,
-            specifications:abi.encodePacked("517Down")
+            specifications:abi.encodePacked("517Down"),
+            priceOracle:priceOracle
         });
         ctf.setApprovalForAll(address(factory),true);
         ctf.setApprovalForAll(address(factory),true);

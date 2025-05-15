@@ -15,6 +15,7 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
         bytes32[] conditionIds;
         uint256[] indexSets;
         bytes specifications;
+        address priceOracle;
     }
 
     struct StorageInCode{
@@ -26,6 +27,7 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
         address ctf;
         address collateral;
         address impl;
+        address priceOracle;
     }
 
     event IndexCreated(address indexed index, uint256[] components, bytes specifications);
@@ -65,7 +67,8 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
         bytes calldata specifications,
         bytes calldata initData,
         address[] memory indexList, 
-        uint256 mergeAmount
+        uint256 mergeAmount,
+        address priceOracle
     ) external returns(address newInstance) {
         //1. check existence of all indexList
         uint256 p = 0;
@@ -89,7 +92,7 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
                 x++;
              }
         }
-        newInstance = _createIndex(IndexImage(impl,newConditionIds,newIndexSets,specifications), initData);
+        newInstance = _createIndex(IndexImage(impl,newConditionIds,newIndexSets,specifications,priceOracle), initData);
         IConditionalTokens(ctf).setApprovalForAll(newInstance, true);
         BaseConditionalTokenIndex(newInstance).deposit(mergeAmount);
         BaseConditionalTokenIndex(newInstance).transfer(msg.sender, mergeAmount);
@@ -102,7 +105,7 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
         if(instance != Clones.predictDeterministicAddressWithImmutableArgs(
             codeInStorage.impl, encoded, keccak256(encoded), address(this))
         ) revert NotExistIndex();
-        image = IndexImage(codeInStorage.impl, codeInStorage.conditionIds,codeInStorage.indexSets, codeInStorage.specifications);
+        image = IndexImage(codeInStorage.impl, codeInStorage.conditionIds,codeInStorage.indexSets, codeInStorage.specifications,codeInStorage.priceOracle);
     }
 
     function _createIndex(IndexImage memory indexImage, bytes calldata initData) internal returns (address index) {
@@ -160,7 +163,8 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
                 address(this),
                 address(ctf),
                 collateral,
-                indexImage.impl
+                indexImage.impl,
+                indexImage.priceOracle
             )
         );
         

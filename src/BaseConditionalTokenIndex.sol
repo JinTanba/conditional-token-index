@@ -23,11 +23,12 @@ abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
         address ctf;
         address collateral;
         address impl;
+        address priceOracle;
     }
 
     constructor() ERC20("",""){}
 
-    function initialize(bytes calldata initData) external virtual {
+    function initialize(bytes calldata initData) external {
         require(msg.sender == $().factory,"PermissonError");
         _init(initData);
     }
@@ -92,16 +93,20 @@ abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
         return $().collateral;
     }
 
-    function _init(bytes memory initData) internal virtual {}
-
-    function name() public override view returns (string memory) {
-        bytes32 h = keccak256(Clones.fetchCloneArgs(address(this)));
-        return string(abi.encodePacked("CTI-", _toHexString(h)));
+    function priceOracle() public view returns(address) {
+        return $().priceOracle;
     }
 
-    function symbol() public override view returns (string memory) {
-        bytes32 h = keccak256(Clones.fetchCloneArgs(address(this)));
-        return string(abi.encodePacked("X-", _toHexString(h)));
+    function _init(bytes memory initData) internal virtual {}
+
+    //TODO: make dynamic name
+    function name() public override virtual pure returns (string memory) {
+        return "ConditionalTokenIndex";
+    }
+
+    //TODO: make dynamic symbol
+    function symbol() public override virtual pure returns (string memory) {
+        return "CTI";
     }
 
     /// @dev EIP-1155 receiver hooks
@@ -136,18 +141,7 @@ abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
             super.supportsInterface(interfaceId);
     }
 
-    /// @dev Convert bytes32 to 0x-prefixed hex string
-    function _toHexString(bytes32 data) internal pure returns (string memory) {
-        bytes memory hexChars = "0123456789abcdef";
-        bytes memory str = new bytes(2 + 64);
-        str[0] = "0";
-        str[1] = "x";
-        for (uint256 i = 0; i < 32; i++) {
-            str[2 + i * 2] = hexChars[uint8(data[i] >> 4)];
-            str[3 + i * 2] = hexChars[uint8(data[i] & 0x0f)];
-        }
-        return string(str);
-    }
+
 }
 
 

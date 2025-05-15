@@ -20,7 +20,8 @@ contract MockUSDC is ERC20 {
     }
 }
 
-contract Deploy is Test {
+
+contract FlowTest is Test {
     // Constants for test configuration
     address private constant CTF_REAL_ADDRESS = 0x4D97DCd97eC945f40cF65F87097ACe5EA0476045;
     string private constant QUESTION_1_TEXT = "polynance test1";
@@ -36,7 +37,7 @@ contract Deploy is Test {
 
     address internal oracleAddress;
     address internal userAddress;
-
+    address internal priceOracle;
     bytes32 internal questionId1;
     bytes32 internal questionId2;
     bytes32 internal conditionId1;
@@ -54,6 +55,7 @@ contract Deploy is Test {
         ctfInterface = IConditionalTokens(CTF_REAL_ADDRESS);
         factory = new ConditionalTokensIndexFactory(address(ctfInterface), address(collateralToken));
         indexImplementation = new ConditionalTokensIndex();
+        priceOracle = address(indexImplementation);
 
         oracleAddress = msg.sender;
         userAddress = msg.sender;
@@ -124,7 +126,8 @@ contract Deploy is Test {
             impl: address(indexImplementation),
             conditionIds: conditionIdsForImage,
             indexSets: defaultIndexSetsForImage,
-            specifications: bytes("Test Index Create")
+            specifications: bytes("Test Index Create"),
+            priceOracle: priceOracle
         });
         
         uint256 initialFundingAmount = MINT_AMOUNT;
@@ -136,6 +139,8 @@ contract Deploy is Test {
 
         // Low-level Proxy Storage/Code Checks
         uint256[] memory components = BaseConditionalTokenIndex(indexInstanceAddress).components();
+        console.log(BaseConditionalTokenIndex(indexInstanceAddress).name());
+        console.log(BaseConditionalTokenIndex(indexInstanceAddress).symbol());
         bytes memory codeInStorageBytes = Clones.fetchCloneArgs(indexInstanceAddress);
         // Assuming BaseConditionalTokenIndex and ConditionalTokensIndexFactory have a '$()' function
         // If not, these lines would need adjustment to the actual methods for fetching storage representations.
@@ -161,7 +166,7 @@ contract Deploy is Test {
         ctfInterface.splitPosition(address(collateralToken), bytes32(0), conditionId2, defaultPartitionForSplit, MINT_AMOUNT);
         
         bytes32[] memory cIds = new bytes32[](2); cIds[0] = conditionId1; cIds[1] = conditionId2;
-        ConditionalTokensIndexFactory.IndexImage memory img = ConditionalTokensIndexFactory.IndexImage(address(indexImplementation), cIds, defaultIndexSetsForImage, bytes("Test Deposit/Withdraw"));
+        ConditionalTokensIndexFactory.IndexImage memory img = ConditionalTokensIndexFactory.IndexImage(address(indexImplementation), cIds, defaultIndexSetsForImage, bytes("Test Deposit/Withdraw"), priceOracle);
         uint256 funding = MINT_AMOUNT;
         address testIndex = factory.createIndex(img, bytes(""), funding);
         uint256[] memory components = BaseConditionalTokenIndex(testIndex).components();
