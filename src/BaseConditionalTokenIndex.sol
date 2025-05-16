@@ -9,6 +9,8 @@ import {IConditionalTokens} from "./interfaces/IConditionalTokens.sol";
 
 
 abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
+    string internal _name;
+    string internal _symbol;
     // @dev
     // Invariant conditions:
     // 1. If the set of positionids is the same, and the metadata and ctf addresses are the same, calculate the same indextoken.
@@ -30,7 +32,9 @@ abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
 
     function initialize(bytes calldata initData) external {
         require(msg.sender == $().factory,"PermissonError");
-        ctf().setApprovalForAll(address(this),true);
+        ctf().setApprovalForAll(address(ctf()),true);
+        _name = abi.decode($().specifications,(string));
+        _symbol = abi.decode($().specifications,(string));
         _init(initData);
     }
 
@@ -109,13 +113,13 @@ abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
     function _init(bytes memory initData) internal virtual {}
 
     //TODO: make dynamic name
-    function name() public override virtual pure returns (string memory) {
-        return "ConditionalTokenIndex";
+    function name() public override virtual view returns (string memory) {
+        return _name;
     }
 
     //TODO: make dynamic symbol
-    function symbol() public override virtual pure returns (string memory) {
-        return "CTI";
+    function symbol() public override virtual view returns (string memory) {
+        return _symbol;
     }
 
     /// @dev EIP-1155 receiver hooks
@@ -153,5 +157,3 @@ abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
 
 }
 
-
-contract ConditionalTokensIndex is BaseConditionalTokenIndex {}

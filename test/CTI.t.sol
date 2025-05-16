@@ -3,11 +3,15 @@ pragma solidity ^0.8.24;
 
 import "../src/ConditionalTokensIndexFactory.sol";
 import "../src/ConditionalTokensIndex.sol";
+import "../src/CTFExchangePriceOracle.sol";
+import "../src/SplitAndOracleImpl.sol";
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
+import {ICTFExchange} from "../src/interfaces/ICTFExchange.sol";
+import {Side, Order, OrderStatus,SignatureType} from "../src/libs/PolymarketOrderStruct.sol";
 
 // MockUSDC remains unchanged
 contract MockUSDC is ERC20 {
@@ -20,24 +24,57 @@ contract MockUSDC is ERC20 {
     }
 }
 
+contract MockICTFExchange {
+    ICTFExchange public ctfExchange;
+    constructor(address _ctfExchange) {
+        ctfExchange = ICTFExchange(_ctfExchange);
+    }
+    mapping(bytes32 => OrderStatus) internal _orderStatus;
+    
+    //MOCK ONLY
+    function orderStatus(bytes32 orderHash) external view returns (OrderStatus memory) {
+        return _orderStatus[orderHash];
+    }
+    function hashOrder(Order calldata order) external view returns (bytes32) {
+        return ctfExchange.hashOrder(order);
+    }
+    function registry(uint256 tokenId) external view returns (uint256 complement, bytes32 conditionId) {
+        return ctfExchange.registry(tokenId);
+    }
+    //MOCK ONLY
+    function _setOrderStatus(Order calldata order, OrderStatus memory newStatus) external {
+        _orderStatus[ctfExchange.hashOrder(order)] = newStatus;
+    }
+    function getComplement(uint256 tokenId) external view returns (uint256) {
+        return ctfExchange.getComplement(tokenId);
+    }
+    function getConditionId(uint256 tokenId) external view returns (bytes32) {
+        return ctfExchange.getConditionId(tokenId);
+    }
+}
+
 
 contract FlowTest is Test {
     // Constants for test configuration
     address private constant CTF_REAL_ADDRESS = 0x4D97DCd97eC945f40cF65F87097ACe5EA0476045;
+
     string private constant QUESTION_1_TEXT = "polynance test1";
     string private constant QUESTION_2_TEXT = "polynance test2";
     uint256 private constant DEFAULT_OUTCOME_SLOT_COUNT = 2;
     uint256 private constant MINT_AMOUNT = 2 * 10**6; // Default amount for splits/funding
+    uint256 private constant BPS = 10_000;
+    uint256 private constant tradeRate=8_500;//85
 
     // State variables initialized in setUp and used across tests
     IConditionalTokens internal ctfInterface;
     MockUSDC internal collateralToken;
     ConditionalTokensIndexFactory internal factory;
     ConditionalTokensIndex internal indexImplementation; // Base implementation for proxies
-
+    CTFExchangePriceOracle internal priceOracle;
+    MockICTFExchange internal mockICTFExchange;
+    SplitAndOracleImpl internal splitImplementation;
     address internal oracleAddress;
     address internal userAddress;
-    address internal priceOracle;
     bytes32 internal questionId1;
     bytes32 internal questionId2;
     bytes32 internal conditionId1;
@@ -45,6 +82,38 @@ contract FlowTest is Test {
 
     uint256[] internal defaultPartitionForSplit;
     uint256[] internal defaultIndexSetsForImage;
+
+    Order public baseOrder = Order({
+        salt: 1436683769915,
+        maker: 0x1aA44c933A6718a4BC44064F0067A853c34be9B0,
+        signer: 0x1aA44c933A6718a4BC44064F0067A853c34be9B0,
+        taker: 0x0000000000000000000000000000000000000000,
+        tokenId: 65635069780420563470359317634895637337713542089289204127626426923331166629221,
+        makerAmount: 3997600,
+        takerAmount: 5260000,
+        expiration: 0,
+        nonce: 0,
+        feeRateBps: 0,
+        side: Side.BUY,
+        signatureType: SignatureType.EOA,
+        signature: "0xeb0f6e7244e72b3b07b85b1524320758ecb8991...7fcfcbae0dff1ad439d518eab07907d33c56cf8f3ad65b3db828b6c639a4f1b"
+    });
+
+    Order public subOrder = Order({
+        salt: 1436683769914,
+        maker: 0x1aA44c933A6718a4BC44064F0067A853c34be9B0,
+        signer: 0x1aA44c933A6718a4BC44064F0067A853c34be9B0,
+        taker: 0x0000000000000000000000000000000000000000,
+        tokenId: 27804215744716732413063941336669826182851764173867962754282833425742958825900,
+        makerAmount: 52600000,
+        takerAmount: 39976000,
+        expiration: 0,
+        nonce: 0,
+        feeRateBps: 0,
+        side: Side.SELL,
+        signatureType: SignatureType.EOA,
+        signature: "0xeb0f6e7244e72b3b07b85b1524320758ecb8991...7fcfcbae0dff1ad439d518eab07907d33c56cf8f3ad65b3db828b6c639a4f1b"
+    });
 
 
     function setUp() public virtual {
@@ -55,7 +124,9 @@ contract FlowTest is Test {
         ctfInterface = IConditionalTokens(CTF_REAL_ADDRESS);
         factory = new ConditionalTokensIndexFactory(address(ctfInterface), address(collateralToken));
         indexImplementation = new ConditionalTokensIndex();
-        priceOracle = address(indexImplementation);
+        splitImplementation = new SplitAndOracleImpl();
+        mockICTFExchange = new MockICTFExchange(0xC5d563A36AE78145C45a50134d48A1215220f80a);
+        priceOracle = new CTFExchangePriceOracle(address(mockICTFExchange), 1 hours, 10**6);
 
         oracleAddress = msg.sender;
         userAddress = msg.sender;
@@ -71,8 +142,8 @@ contract FlowTest is Test {
         ctfInterface.prepareCondition(oracleAddress, questionId1, DEFAULT_OUTCOME_SLOT_COUNT);
         ctfInterface.prepareCondition(oracleAddress, questionId2, DEFAULT_OUTCOME_SLOT_COUNT);
 
-        conditionId1 = ctfInterface.getConditionId(oracleAddress, questionId1, DEFAULT_OUTCOME_SLOT_COUNT);
-        conditionId2 = ctfInterface.getConditionId(oracleAddress, questionId2, DEFAULT_OUTCOME_SLOT_COUNT);
+        conditionId1 = 0x0b9f873f001fa5ccf06fb55a21663401a86ba8af20c2452baea618a32c08c88f;
+        conditionId2 = 0x88fad6af135ca7cbd55a8bda5a1243125ded68b1e521066009cc990b13960b88;
 
         // Define default partition and index sets (as used in original test)
         defaultPartitionForSplit = new uint256[](2);
@@ -83,6 +154,61 @@ contract FlowTest is Test {
         defaultIndexSetsForImage[0] = 1; // Corresponds to outcome 0 (e.g., 1 << 0)
         defaultIndexSetsForImage[1] = 2; // Corresponds to outcome 1 (e.g., 1 << 1)
 
+        vm.stopBroadcast();
+    }
+
+    function test_SplitOracleImpl() public {
+        vm.startBroadcast();
+        bytes32[] memory conditionIdsForImage = new bytes32[](2);
+        conditionIdsForImage[0] = conditionId1;
+        conditionIdsForImage[1] = conditionId2;
+        ConditionalTokensIndexFactory.IndexImage memory indexImage = ConditionalTokensIndexFactory.IndexImage({
+            impl: address(splitImplementation),
+            conditionIds: conditionIdsForImage,
+            indexSets: defaultIndexSetsForImage,
+            specifications: abi.encode("Test Index Create"),
+            priceOracle: address(priceOracle)
+        });
+        console.log("1");
+        address indexAddress = factory.createIndex(indexImage, bytes(""));
+        console.log("2");
+        uint256[] memory complements = SplitAndOracleImpl(indexAddress).getComplement();
+        assertEq(complements.length, SplitAndOracleImpl(indexAddress).components().length, "Complements length should be 2");
+        ctfInterface.setApprovalForAll(indexAddress, true);
+        ERC20(collateralToken).approve(indexAddress, type(uint256).max);
+        SplitAndOracleImpl(indexAddress).deposit(5*10**6);
+        uint256 expectedOut = (5*10**6) / SplitAndOracleImpl(indexAddress).conditionIds().length;
+        assertEq(SplitAndOracleImpl(indexAddress).balanceOf(msg.sender), expectedOut, "Balance should be 5M");
+        assertEq(ERC1155(address(ctfInterface)).balanceOf(indexAddress, SplitAndOracleImpl(indexAddress).components()[0]), expectedOut, "Index balance should be 5M");
+        assertEq(ERC1155(address(ctfInterface)).balanceOf(indexAddress, SplitAndOracleImpl(indexAddress).getComplement()[0]), expectedOut, "Index balance should be 5M");
+        assertEq(SplitAndOracleImpl(indexAddress).totalSupply(), expectedOut, "Total supply should be 5M");
+        uint256 size =expectedOut/2;
+        uint256 oldBalance = ERC20(collateralToken).balanceOf(msg.sender);
+        uint256 oldCTFBalance = ctfInterface.balanceOf(msg.sender, baseOrder.tokenId);
+        OrderStatus memory orderStatus = OrderStatus({
+            isFilledOrCancelled:false,
+            remaining:0
+        });
+        mockICTFExchange._setOrderStatus(baseOrder,orderStatus);
+        ctfInterface.setApprovalForAll(address(ctfInterface),true);
+        uint256 payed = SplitAndOracleImpl(indexAddress).proposeOrder(baseOrder, size);
+        uint256 b = oldBalance-ERC20(collateralToken).balanceOf(msg.sender);
+        console.log("------");
+        assertEq(b, payed, "Balance should be 5M");
+        uint256 tokenId = baseOrder.tokenId;
+        assertEq(ERC1155(address(ctfInterface)).balanceOf(msg.sender, tokenId)-oldCTFBalance, payed*tradeRate/BPS, "Index balance should be 5M");
+        orderStatus.isFilledOrCancelled = true;
+        uint256 oldBalance2 = ERC20(collateralToken).balanceOf(msg.sender);
+        mockICTFExchange._setOrderStatus(baseOrder,orderStatus);
+        SplitAndOracleImpl(indexAddress).resolveProposedOrder(mockICTFExchange.hashOrder(baseOrder));
+        assertEq(ERC20(collateralToken).balanceOf(msg.sender)-oldBalance2, payed-(payed*tradeRate/BPS), "Index balance should be 5M");
+
+        (uint256 price, uint256 createdAt) = priceOracle._calcPrice(baseOrder);
+        assertEq(price, priceOracle.getPrice(tokenId).price,"This is worst");
+        
+        SplitAndOracleImpl(indexAddress).approve(msg.sender,SplitAndOracleImpl(indexAddress).balanceOf(msg.sender));
+        SplitAndOracleImpl(indexAddress).withdraw(SplitAndOracleImpl(indexAddress).balanceOf(msg.sender));
+        assertEq(ERC20(collateralToken).balanceOf(msg.sender), 0, "Index balance should be 5M");
         vm.stopBroadcast();
     }
 
@@ -126,13 +252,13 @@ contract FlowTest is Test {
             impl: address(indexImplementation),
             conditionIds: conditionIdsForImage,
             indexSets: defaultIndexSetsForImage,
-            specifications: bytes("Test Index Create"),
-            priceOracle: priceOracle
+            specifications: abi.encode("Test Index Create"),
+            priceOracle: address(priceOracle)
         });
         
         uint256 initialFundingAmount = MINT_AMOUNT;
         address predictedIndexAddress = factory.computeIndex(indexImage);
-        address indexInstanceAddress = factory.createIndex(indexImage, bytes(""), initialFundingAmount);
+        address indexInstanceAddress = factory.createIndexWithFunding(indexImage, bytes(""), initialFundingAmount);
         
         console.log("Created Index Instance Address: %s", indexInstanceAddress);
         assertEq(predictedIndexAddress, indexInstanceAddress, "Predicted index address should match actual");
@@ -166,7 +292,7 @@ contract FlowTest is Test {
         ctfInterface.splitPosition(address(collateralToken), bytes32(0), conditionId2, defaultPartitionForSplit, MINT_AMOUNT);
         
         bytes32[] memory cIds = new bytes32[](2); cIds[0] = conditionId1; cIds[1] = conditionId2;
-        ConditionalTokensIndexFactory.IndexImage memory img = ConditionalTokensIndexFactory.IndexImage(address(indexImplementation), cIds, defaultIndexSetsForImage, bytes("Test Deposit/Withdraw"), priceOracle);
+        ConditionalTokensIndexFactory.IndexImage memory img = ConditionalTokensIndexFactory.IndexImage(address(indexImplementation), cIds, defaultIndexSetsForImage, bytes("Test Deposit/Withdraw"), address(priceOracle));
         uint256 funding = MINT_AMOUNT;
         address testIndex = factory.createIndexWithFunding(img, bytes(""), funding);
         uint256[] memory components = BaseConditionalTokenIndex(testIndex).components();

@@ -120,7 +120,7 @@ contract CTFExchangePriceOracle {
         }
     }
     
-    function _calcPrice(Order memory o) internal view returns (uint256, uint256) {
+    function _calcPrice(Order memory o) public view returns (uint256, uint256) {
         uint256 collateralAmount  = (o.side == Side.BUY) ? o.makerAmount : o.takerAmount;
         if(collateralAmount < MIN_USDC_NOTIONAL) revert TooSmall();
         uint256 ctfTokenAmount = (o.side == Side.BUY) ? o.takerAmount : o.makerAmount;
