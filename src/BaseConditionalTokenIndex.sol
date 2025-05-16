@@ -9,11 +9,11 @@ import {IConditionalTokens} from "./interfaces/IConditionalTokens.sol";
 
 
 abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
-// @dev
-// Invariant conditions:
-// 1. If the set of positionids is the same, and the metadata and ctf addresses are the same, calculate the same indextoken.
-// 2. An indextoken is issued and can be withdrawn in a 1:1 ratio with the position token it contains.
-// 3. An indextoken cannot have two or more positions under the same conditionid.
+    // @dev
+    // Invariant conditions:
+    // 1. If the set of positionids is the same, and the metadata and ctf addresses are the same, calculate the same indextoken.
+    // 2. An indextoken is issued and can be withdrawn in a 1:1 ratio with the position token it contains.
+    // 3. An indextoken cannot have two or more positions under the same conditionid.
     struct StorageInCode{
         uint256[] components;
         bytes32[] conditionIds;
@@ -30,10 +30,19 @@ abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
 
     function initialize(bytes calldata initData) external {
         require(msg.sender == $().factory,"PermissonError");
+        ctf().setApprovalForAll(address(this),true);
         _init(initData);
     }
 
     function deposit(uint256 amount) external {
+        _deposit(amount);
+    }
+
+    function withdraw(uint256 amount) external {
+        _withdraw(amount);
+    }
+
+    function _deposit(uint256 amount) internal virtual {
         uint256 len = components().length;
         uint256[] memory amts = new uint256[](len);
         unchecked {
@@ -45,7 +54,7 @@ abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
         ctf().safeBatchTransferFrom(msg.sender, address(this), components(), amts, "");
     }
 
-    function withdraw(uint256 amount) external {
+    function _withdraw(uint256 amount) internal virtual {
         uint256 len = components().length;
 
         uint256[] memory amts = new uint256[](len);

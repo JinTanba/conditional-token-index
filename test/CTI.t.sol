@@ -168,7 +168,7 @@ contract FlowTest is Test {
         bytes32[] memory cIds = new bytes32[](2); cIds[0] = conditionId1; cIds[1] = conditionId2;
         ConditionalTokensIndexFactory.IndexImage memory img = ConditionalTokensIndexFactory.IndexImage(address(indexImplementation), cIds, defaultIndexSetsForImage, bytes("Test Deposit/Withdraw"), priceOracle);
         uint256 funding = MINT_AMOUNT;
-        address testIndex = factory.createIndex(img, bytes(""), funding);
+        address testIndex = factory.createIndexWithFunding(img, bytes(""), funding);
         uint256[] memory components = BaseConditionalTokenIndex(testIndex).components();
         vm.stopBroadcast();
 

@@ -48,11 +48,7 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
         collateral = collateral_;
     }
 
-    function createIndex(IndexImage calldata indexImage, bytes calldata initData) external returns(address) {
-        return _createIndex(indexImage,initData);
-    }
-
-    function createIndexWithFunding(IndexImage calldata indexImage, bytes calldata initData, uint256 funding) external returns(address) {
+    function createIndex(IndexImage calldata indexImage, bytes calldata initData, uint256 funding) external returns(address) {
         address instance = _createIndex(indexImage,initData);
         BaseConditionalTokenIndex indexInstance = BaseConditionalTokenIndex(instance);
         uint256[] memory components = $(instance).components;
