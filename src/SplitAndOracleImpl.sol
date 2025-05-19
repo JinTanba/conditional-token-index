@@ -6,7 +6,6 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { Side, Order, OrderStatus } from "./libs/PolymarketOrderStruct.sol";
 import {ICTFExchange} from "./interfaces/ICTFExchange.sol";
 import {CTFExchangePriceOracle} from "./CTFExchangePriceOracle.sol";
-import "forge-std/console.sol";
 // @dev
 // Invariant conditions:
 // 1. If the set of positionids is the same, and the metadata and ctf addresses are the same, calculate the same indextoken.
@@ -71,13 +70,11 @@ contract SplitAndOracleImpl is BaseConditionalTokenIndex {
                 amts[i] = amount;
             }
         }
+        uint256 oldTotalSupply = totalSupply();
         _burn(msg.sender, amount);
         uint256 balance = ERC20(collateral()).balanceOf(address(this));
-        console.log("balance");
-        ERC20(collateral()).transfer(msg.sender, balance*(amount/totalSupply()));
-        console.log("balance2");
+        ERC20(collateral()).transfer(msg.sender, balance*(amount/oldTotalSupply));
         ctf().safeBatchTransferFrom(address(this), msg.sender, components(), amts, "");
-        console.log("balance3");
         emit Withdraw(msg.sender, amount);
     }
 
