@@ -33,6 +33,7 @@ abstract contract BaseConditionalTokenIndex is ERC20, IERC1155Receiver, ERC165 {
     function initialize(bytes calldata initData) external {
         require(msg.sender == $().factory,"PermissonError");
         ctf().setApprovalForAll(address(ctf()),true);
+        //TODO
         _name = abi.decode($().specifications,(string));
         _symbol = abi.decode($().specifications,(string));
         _init(initData);
