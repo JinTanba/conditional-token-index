@@ -65,7 +65,7 @@ contract CTFExchangePriceOracle {
     }
 
     //Phase1: Declare order before post
-    function proposePrice(Order calldata order) external returns(uint256) {
+    function proposePrice(Order calldata order) public returns(uint256) {
         bytes32 orderHash = ctfExchange.hashOrder(order);
 
         //check order is not filled or cancelled, send before order is filled

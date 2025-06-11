@@ -5,7 +5,6 @@ import "@openzeppelin/contracts/proxy/Clones.sol";
 import {IConditionalTokens} from "./interfaces/IConditionalTokens.sol";
 import {BaseConditionalTokenIndex} from "./BaseConditionalTokenIndex.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
-import "forge-std/console.sol";
 
 contract ConditionalTokensIndexFactory is IERC1155Receiver {
     IConditionalTokens public immutable ctf;
@@ -50,7 +49,6 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
     }
 
     function createIndex(IndexImage calldata indexImage, bytes calldata initData) external returns(address) {
-        console.log("   [FACTORY]1.  createIndex");
         return _createIndex(indexImage,initData);
     }
 
@@ -115,17 +113,12 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
     }
 
     function _createIndex(IndexImage memory indexImage, bytes calldata initData) internal returns (address index) {
-        console.log("   [FACTORY]2.  _createIndex");
         (uint256[] memory components, bytes memory immutableArgs) = composeIndex(indexImage);
-        console.log("   [FACTORY]5.  composeIndex");
         bytes32 salt = keccak256(immutableArgs);
         index = Clones.predictDeterministicAddressWithImmutableArgs(indexImage.impl, immutableArgs, salt);
-        console.log("   [FACTORY]6.  predictDeterministicAddressWithImmutableArgs");
         if(index.code.length!=0) return index;
         index = Clones.cloneDeterministicWithImmutableArgs(indexImage.impl, immutableArgs, salt);
-        console.log("   [FACTORY]7.  cloneDeterministicWithImmutableArgs");
         BaseConditionalTokenIndex(index).initialize(initData);
-        console.log("   [FACTORY]8.  initialize");
         emit IndexCreated(index, components, indexImage.specifications);
     }
 
@@ -135,7 +128,6 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
     }
 
     function composeIndex(IndexImage memory indexImage) internal view returns (uint256[] memory components, bytes memory immutableArgs) {
-        console.log("   [FACTORY]3.  composeIndex");
         bytes32[] memory conditionIds = indexImage.conditionIds;
         uint256[] memory indexSets = indexImage.indexSets;
         uint256 n = conditionIds.length;
@@ -157,7 +149,7 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
             );
         }
 
-        //TODO:do math
+        //TODO:do math,you sock
         for (uint256 i = 0; i < n; ++i) {
             for (uint256 j = i + 1; j < n; ++j) {
                 if (components[j] < components[i]) {
@@ -166,7 +158,6 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
             }
         }
 
-        console.log("   [FACTORY]4.  composeIndex");
 
         immutableArgs = abi.encode(
             StorageInCode(
@@ -212,5 +203,10 @@ contract ConditionalTokensIndexFactory is IERC1155Receiver {
         return interfaceId == type(IERC1155Receiver).interfaceId;
     }
 
+    function getIndexInfo(address index) external view returns (bytes memory) {
+        StorageInCode memory codeInStorage = $(index);
+        if(codeInStorage.conditionIds.length==0) revert NotExistIndex();
+        return codeInStorage.specifications;
+    }
 
 }
