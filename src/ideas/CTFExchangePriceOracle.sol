@@ -139,12 +139,6 @@ contract CTFExchangePriceOracle {
         return (basePrice, 0);
     }
 
-    function getCurrentPrice(address indexToken) external view returns (uint256) {
-        require(BaseConditionalTokenIndex(indexToken).components().length == 1,"TODO: should fix");
-        uint256 tokenId = BaseConditionalTokenIndex(indexToken).components()[0];
-        return getCurrentPrice(tokenId).price;
-    }
-
     function getCurrentPrice(uint256 tokenId) public view returns (PriceData memory) {
         return priceFeed[tokenId];
     }
