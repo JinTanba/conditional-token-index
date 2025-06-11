@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
 
-import {ICTFExchange} from "./interfaces/ICTFExchange.sol";
-import { Side, Order, OrderStatus } from "./libs/PolymarketOrderStruct.sol";
+import "../interfaces/ICTFExchange.sol";
+import "../BaseConditionalTokenIndex.sol";
 
 contract CTFExchangePriceOracle {
 
@@ -55,6 +55,13 @@ contract CTFExchangePriceOracle {
         ctfExchange = ICTFExchange(_ctfExchange);
         TTL = _ttl;
         MIN_USDC_NOTIONAL = _minUsdcNotional;
+    }
+
+    function proposePriceWithEncoded(
+        bytes calldata encodedOrder
+    ) external returns(uint256) {
+        Order memory o = abi.decode(encodedOrder, (Order));
+        return proposePrice(o);
     }
 
     //Phase1: Declare order before post
@@ -132,7 +139,13 @@ contract CTFExchangePriceOracle {
         return (basePrice, 0);
     }
 
-    function getPrice(uint256 tokenId) public view returns (PriceData memory) {
+    function getCurrentPrice(address indexToken) external view returns (uint256) {
+        require(BaseConditionalTokenIndex(indexToken).components().length == 1,"TODO: should fix");
+        uint256 tokenId = BaseConditionalTokenIndex(indexToken).components()[0];
+        return getCurrentPrice(tokenId).price;
+    }
+
+    function getCurrentPrice(uint256 tokenId) public view returns (PriceData memory) {
         return priceFeed[tokenId];
     }
 

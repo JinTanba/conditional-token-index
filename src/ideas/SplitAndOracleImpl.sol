@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {BaseConditionalTokenIndex} from "./BaseConditionalTokenIndex.sol";
+import {BaseConditionalTokenIndex} from "../BaseConditionalTokenIndex.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { Side, Order, OrderStatus } from "./libs/PolymarketOrderStruct.sol";
-import {ICTFExchange} from "./interfaces/ICTFExchange.sol";
+import "../interfaces/ICTFExchange.sol";
 import {CTFExchangePriceOracle} from "./CTFExchangePriceOracle.sol";
 // @dev
 // Invariant conditions:
@@ -90,7 +89,7 @@ contract SplitAndOracleImpl is BaseConditionalTokenIndex {
         }
         if(!find) revert("InvalidTokenId");
         uint256 amount;
-        CTFExchangePriceOracle.PriceData memory priceData = CTFExchangePriceOracle(priceOracle()).getPrice(order.tokenId);
+        CTFExchangePriceOracle.PriceData memory priceData = CTFExchangePriceOracle(priceOracle()).getCurrentPrice(order.tokenId);
         if(priceData.createdAt!=0&&priceData.createdAt+TTL>block.timestamp) {
             amount = priceData.price*size/ONE;//(priceE18 * size) / 1e18
             require(amount > ctf().balanceOf(address(this),order.tokenId),"TooBig");
@@ -114,7 +113,7 @@ contract SplitAndOracleImpl is BaseConditionalTokenIndex {
         bool isFilled = CTFExchangePriceOracle(priceOracle()).getOrderStatus(orderHash);
         if(isFilled) {
             ProposeData memory pd = priceProposed[orderHash];
-            uint256 price = CTFExchangePriceOracle(priceOracle()).getPrice(pd.tokenId).price;
+            uint256 price = CTFExchangePriceOracle(priceOracle()).getCurrentPrice(pd.tokenId).price;
             uint256 currentPrice = price > pd.price ? price : pd.price;
             uint256 amount = currentPrice*pd.size/ONE;
             uint256 refund = amount-(amount*tradeRate/BPS);

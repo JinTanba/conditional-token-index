@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {IConditionalTokens} from "./interfaces/IConditionalTokens.sol";
 import {BaseConditionalTokenIndex} from "./BaseConditionalTokenIndex.sol";
 // @dev
 // Invariant conditions:
